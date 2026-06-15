@@ -148,3 +148,23 @@ export interface TaskProgress {
     shareCount: number
   }
 }
+
+export interface VideoStats {
+  totalView: number
+  totalLike: number
+  totalComment: number
+  totalShare: number
+  totalSuccessTasks: number
+  platforms: Record<string, {
+    taskId: number
+    viewCount: number
+    likeCount: number
+    commentCount: number
+    shareCount: number
+    status: number
+  }>
+}
+
+export interface VideoWithStats extends Video {
+  stats?: VideoStats
+}

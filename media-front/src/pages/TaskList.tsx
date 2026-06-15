@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Table,
   Button,
@@ -17,20 +17,23 @@ import {
   DeleteOutlined,
   RetweetOutlined,
   StopOutlined,
-  EyeOutlined
+  EyeOutlined,
+  SyncOutlined
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { getTaskList, deleteTask, retryTask, cancelTask } from '@/api/task'
+import { recoverTaskStats } from '@/api/stats'
+import AnimatedNumber from '@/components/AnimatedNumber'
 import type { DistributeTask, PageResult, TaskStatus, PlatformType } from '@/types'
 import type { TablePaginationConfig } from 'antd/es/table'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
-const platformConfig: Record<PlatformType, { label: string; color: string }> = {
-  douyin: { label: '抖音', color: '#000000' },
-  kuaishou: { label: '快手', color: '#ff4400' },
-  xiaohongshu: { label: '小红书', color: '#ff2442' }
+const platformConfig: Record<PlatformType, { label: string; color: string; bgColor: string }> = {
+  douyin: { label: '抖音', color: '#ffffff', bgColor: '#000000' },
+  kuaishou: { label: '快手', color: '#ffffff', bgColor: '#ff4400' },
+  xiaohongshu: { label: '小红书', color: '#ffffff', bgColor: '#ff2442' }
 }
 
 const statusConfig: Record<TaskStatus, { text: string; color: string }> = {
@@ -44,6 +47,8 @@ const statusConfig: Record<TaskStatus, { text: string; color: string }> = {
 const TaskList = () => {
   const [tasks, setTasks] = useState<DistributeTask[]>([])
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [recoveringMap, setRecoveringMap] = useState<Record<number, boolean>>({})
   const [pagination, setPagination] = useState<TablePaginationConfig>({
     current: 1,
     pageSize: 10,
@@ -53,13 +58,34 @@ const TaskList = () => {
   const [platformFilter, setPlatformFilter] = useState<PlatformType | null>(null)
   const [detailVisible, setDetailVisible] = useState(false)
   const [selectedTask, setSelectedTask] = useState<DistributeTask | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     fetchTasks()
+    startPolling()
+    return () => {
+      stopPolling()
+    }
   }, [pagination.current, pagination.pageSize, statusFilter, platformFilter])
 
-  const fetchTasks = async () => {
-    setLoading(true)
+  const startPolling = () => {
+    stopPolling()
+    timerRef.current = setInterval(() => {
+      fetchTasks(true)
+    }, 30000)
+  }
+
+  const stopPolling = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  const fetchTasks = async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+    }
     try {
       const params: Record<string, unknown> = {
         pageNum: pagination.current || 1,
@@ -77,8 +103,40 @@ const TaskList = () => {
       setPagination((prev) => ({ ...prev, total: result.total }))
     } catch (error) {
       console.error('获取任务列表失败', error)
+      if (!silent) {
+        message.error('获取任务列表失败')
+      }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
+    }
+  }
+
+  const handleManualRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await fetchTasks(true)
+      message.success('刷新成功')
+    } catch (error) {
+      console.error('刷新失败', error)
+      message.error('刷新失败')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const handleRecoverStats = async (taskId: number) => {
+    setRecoveringMap((prev) => ({ ...prev, [taskId]: true }))
+    try {
+      const recoveredCount = await recoverTaskStats(taskId)
+      message.success(`已拉取 ${recoveredCount} 条数据`)
+      await fetchTasks(true)
+    } catch (error) {
+      console.error('拉取数据失败', error)
+      message.error('拉取数据失败')
+    } finally {
+      setRecoveringMap((prev) => ({ ...prev, [taskId]: false }))
     }
   }
 
@@ -119,6 +177,7 @@ const TaskList = () => {
 
   const canRetry = (status: TaskStatus) => status === 3
   const canCancel = (status: TaskStatus) => status === 0 || status === 1
+  const canRecover = (status: TaskStatus) => status === 2
 
   const columns = [
     {
@@ -150,9 +209,11 @@ const TaskList = () => {
       width: 100,
       render: (platform: PlatformType) => {
         const config = platformConfig[platform]
-        return <Tag color={config.bgColor} style={{ color: config.color, border: 'none' }}>
-          {config.label}
-        </Tag>
+        return (
+          <Tag color={config.bgColor} style={{ color: config.color, border: 'none' }}>
+            {config.label}
+          </Tag>
+        )
       }
     },
     {
@@ -166,15 +227,43 @@ const TaskList = () => {
       }
     },
     {
-      title: '数据统计',
-      key: 'stats',
-      width: 160,
-      render: (_: unknown, record: DistributeTask) => (
-        <Space size={8}>
-          <span>👁 {record.viewCount || 0}</span>
-          <span>👍 {record.likeCount || 0}</span>
-          <span>💬 {record.commentCount || 0}</span>
-        </Space>
+      title: '播放量',
+      dataIndex: 'viewCount',
+      key: 'viewCount',
+      width: 110,
+      sorter: (a: DistributeTask, b: DistributeTask) => (a.viewCount || 0) - (b.viewCount || 0),
+      render: (count: number) => (
+        <AnimatedNumber value={count || 0} prefix="👁 " duration={500} />
+      )
+    },
+    {
+      title: '点赞数',
+      dataIndex: 'likeCount',
+      key: 'likeCount',
+      width: 110,
+      sorter: (a: DistributeTask, b: DistributeTask) => (a.likeCount || 0) - (b.likeCount || 0),
+      render: (count: number) => (
+        <AnimatedNumber value={count || 0} prefix="❤️ " duration={500} />
+      )
+    },
+    {
+      title: '评论数',
+      dataIndex: 'commentCount',
+      key: 'commentCount',
+      width: 110,
+      sorter: (a: DistributeTask, b: DistributeTask) => (a.commentCount || 0) - (b.commentCount || 0),
+      render: (count: number) => (
+        <AnimatedNumber value={count || 0} prefix="💬 " duration={500} />
+      )
+    },
+    {
+      title: '分享数',
+      dataIndex: 'shareCount',
+      key: 'shareCount',
+      width: 110,
+      sorter: (a: DistributeTask, b: DistributeTask) => (a.shareCount || 0) - (b.shareCount || 0),
+      render: (count: number) => (
+        <AnimatedNumber value={count || 0} prefix="🔄 " duration={500} />
       )
     },
     {
@@ -194,10 +283,10 @@ const TaskList = () => {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 260,
       fixed: 'right' as const,
       render: (_: unknown, record: DistributeTask) => (
-        <Space size="small">
+        <Space size="small" wrap>
           <Button
             type="link"
             size="small"
@@ -206,6 +295,17 @@ const TaskList = () => {
           >
             详情
           </Button>
+          {canRecover(record.status) && (
+            <Button
+              type="link"
+              size="small"
+              icon={<SyncOutlined spin={recoveringMap[record.id]} />}
+              onClick={() => handleRecoverStats(record.id)}
+              loading={recoveringMap[record.id]}
+            >
+              拉取数据
+            </Button>
+          )}
           {canRetry(record.status) && (
             <Button
               type="link"
@@ -283,8 +383,12 @@ const TaskList = () => {
               </Option>
             ))}
           </Select>
-          <Button icon={<ReloadOutlined />} onClick={fetchTasks}>
-            刷新
+          <Button
+            icon={<ReloadOutlined spin={refreshing} />}
+            onClick={handleManualRefresh}
+            loading={refreshing}
+          >
+            🔄 手动刷新
           </Button>
         </Space>
       </div>
@@ -306,7 +410,7 @@ const TaskList = () => {
             showTotal: (total) => `共 ${total} 条`
           }}
           onChange={(p) => setPagination(p)}
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1500 }}
         />
       )}
 
@@ -347,10 +451,18 @@ const TaskList = () => {
                 </a>
               </Descriptions.Item>
             )}
-            <Descriptions.Item label="播放量">{selectedTask.viewCount || 0}</Descriptions.Item>
-            <Descriptions.Item label="点赞数">{selectedTask.likeCount || 0}</Descriptions.Item>
-            <Descriptions.Item label="评论数">{selectedTask.commentCount || 0}</Descriptions.Item>
-            <Descriptions.Item label="分享数">{selectedTask.shareCount || 0}</Descriptions.Item>
+            <Descriptions.Item label="播放量">
+              <AnimatedNumber value={selectedTask.viewCount || 0} duration={400} />
+            </Descriptions.Item>
+            <Descriptions.Item label="点赞数">
+              <AnimatedNumber value={selectedTask.likeCount || 0} duration={400} />
+            </Descriptions.Item>
+            <Descriptions.Item label="评论数">
+              <AnimatedNumber value={selectedTask.commentCount || 0} duration={400} />
+            </Descriptions.Item>
+            <Descriptions.Item label="分享数">
+              <AnimatedNumber value={selectedTask.shareCount || 0} duration={400} />
+            </Descriptions.Item>
             <Descriptions.Item label="定时发布">
               {selectedTask.scheduleTime ? dayjs(selectedTask.scheduleTime).format('YYYY-MM-DD HH:mm') : '立即发布'}
             </Descriptions.Item>

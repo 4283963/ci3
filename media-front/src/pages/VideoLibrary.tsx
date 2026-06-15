@@ -1,43 +1,77 @@
-import { useState, useEffect } from 'react'
-import { Table, Button, Space, Typography, Modal, Form, Input, Tag, Popconfirm, message, Spin } from 'antd'
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { useState, useEffect, useRef } from 'react'
+import { Card, Button, Space, Typography, Modal, Form, Input, Popconfirm, message, Spin, Empty, Row, Col } from 'antd'
+import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getVideoList, deleteVideo, updateVideo } from '@/api/video'
+import { getVideoListWithStats, deleteVideo, updateVideo } from '@/api/video'
+import { recoverAllStats } from '@/api/stats'
 import VideoUploader from '@/components/VideoUploader'
-import type { Video, PageResult } from '@/types'
-import type { TablePaginationConfig } from 'antd/es/table'
+import StatsTags from '@/components/StatsTags'
+import PlatformStatsBar from '@/components/PlatformStatsBar'
+import type { VideoWithStats } from '@/types'
 
-const { Title, Text } = Typography
+const { Title, Text, Paragraph } = Typography
 
 const VideoLibrary = () => {
-  const [videos, setVideos] = useState<Video[]>([])
+  const [videos, setVideos] = useState<VideoWithStats[]>([])
   const [loading, setLoading] = useState(false)
-  const [pagination, setPagination] = useState<TablePaginationConfig>({
-    current: 1,
-    pageSize: 10,
-    total: 0
-  })
+  const [refreshing, setRefreshing] = useState(false)
   const [editModalVisible, setEditModalVisible] = useState(false)
-  const [editingVideo, setEditingVideo] = useState<Video | null>(null)
+  const [editingVideo, setEditingVideo] = useState<VideoWithStats | null>(null)
   const [form] = Form.useForm()
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     fetchVideos()
-  }, [pagination.current, pagination.pageSize])
+    startPolling()
+    return () => {
+      stopPolling()
+    }
+  }, [])
 
-  const fetchVideos = async () => {
-    setLoading(true)
+  const startPolling = () => {
+    stopPolling()
+    timerRef.current = setInterval(() => {
+      fetchVideos(true)
+    }, 30000)
+  }
+
+  const stopPolling = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  const fetchVideos = async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+    }
     try {
-      const result = await getVideoList({
-        pageNum: pagination.current || 1,
-        pageSize: pagination.pageSize || 10
-      }) as PageResult<Video>
-      setVideos(result.list)
-      setPagination((prev) => ({ ...prev, total: result.total }))
+      const result = await getVideoListWithStats()
+      setVideos(result)
     } catch (error) {
       console.error('获取视频列表失败', error)
+      if (!silent) {
+        message.error('获取视频列表失败')
+      }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
+    }
+  }
+
+  const handleRefreshAll = async () => {
+    setRefreshing(true)
+    try {
+      await recoverAllStats()
+      message.success('已触发全量数据刷新')
+      await fetchVideos(true)
+    } catch (error) {
+      console.error('刷新数据失败', error)
+      message.error('刷新数据失败')
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -45,7 +79,7 @@ const VideoLibrary = () => {
     fetchVideos()
   }
 
-  const handleEdit = (video: Video) => {
+  const handleEdit = (video: VideoWithStats) => {
     setEditingVideo(video)
     form.setFieldsValue({
       title: video.title,
@@ -91,129 +125,177 @@ const VideoLibrary = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  const columns = [
-    {
-      title: '封面',
-      dataIndex: 'coverUrl',
-      key: 'coverUrl',
-      width: 120,
-      render: (coverUrl: string, record: Video) => (
-        <img
-          src={coverUrl || record.fileUrl}
-          alt="cover"
-          style={{ width: 100, height: 60, objectFit: 'cover', borderRadius: 4 }}
-        />
-      )
-    },
-    {
-      title: '标题',
-      dataIndex: 'title',
-      key: 'title',
-      render: (title: string, record: Video) => (
-        <Space direction="vertical" size={0}>
-          <Text strong ellipsis style={{ maxWidth: 200 }}>
-            {title || record.originalName}
-          </Text>
-          <Text type="secondary" ellipsis style={{ fontSize: 12, maxWidth: 200 }}>
-            {record.originalName}
-          </Text>
-        </Space>
-      )
-    },
-    {
-      title: '大小',
-      dataIndex: 'fileSize',
-      key: 'fileSize',
-      width: 100,
-      render: (size: number) => formatFileSize(size)
-    },
-    {
-      title: '时长',
-      dataIndex: 'duration',
-      key: 'duration',
-      width: 80,
-      render: (duration: number) => formatDuration(duration)
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 80,
-      render: (status: number) => {
-        const statusMap: Record<number, { text: string; color: string }> = {
-          0: { text: '处理中', color: 'processing' },
-          1: { text: '正常', color: 'success' },
-          2: { text: '失败', color: 'error' }
-        }
-        const s = statusMap[status] || statusMap[0]
-        return <Tag color={s.color}>{s.text}</Tag>
-      }
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createTime',
-      key: 'createTime',
-      width: 160,
-      render: (time: string) => dayjs(time).format('YYYY-MM-DD HH:mm')
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 120,
-      fixed: 'right' as const,
-      render: (_: unknown, record: Video) => (
-        <Space>
-          <Button
-            type="link"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定删除这个视频吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      )
-    }
-  ]
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <Title level={4} style={{ margin: 0 }}>
           视频库
         </Title>
-        <VideoUploader onSuccess={handleUploadSuccess} />
+        <Space>
+          <Button
+            icon={<ReloadOutlined spin={refreshing} />}
+            onClick={handleRefreshAll}
+            loading={refreshing}
+          >
+            🔄 刷新数据
+          </Button>
+          <VideoUploader onSuccess={handleUploadSuccess} />
+        </Space>
       </div>
 
       {loading && videos.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 100 }}>
           <Spin size="large" />
         </div>
+      ) : videos.length === 0 ? (
+        <Empty description="暂无视频，请先上传视频" />
       ) : (
-        <Table
-          columns={columns}
-          dataSource={videos}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            ...pagination,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条`
-          }}
-          onChange={(p) => setPagination(p)}
-          scroll={{ x: 800 }}
-        />
+        <Row gutter={[16, 16]}>
+          {videos.map((video) => (
+            <Col xs={24} sm={12} md={8} lg={8} xl={6} key={video.id}>
+              <Card
+                hoverable
+                loading={loading}
+                bodyStyle={{ padding: 0 }}
+                style={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+                styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column' } }}
+                actions={[
+                  <Button
+                    key="edit"
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => handleEdit(video)}
+                  >
+                    编辑
+                  </Button>,
+                  <Popconfirm
+                    key="delete"
+                    title="确定删除这个视频吗？"
+                    onConfirm={() => handleDelete(video.id)}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                ]}
+              >
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '100%',
+                    paddingTop: '56.25%',
+                    overflow: 'hidden',
+                    backgroundColor: '#f5f5f5'
+                  }}
+                >
+                  <img
+                    src={video.coverUrl || video.fileUrl}
+                    alt={video.title || video.originalName}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: 8,
+                      right: 8,
+                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                      color: '#fff',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      fontSize: 12
+                    }}
+                  >
+                    {formatDuration(video.duration)}
+                  </div>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
+                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                      color: '#fff',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      fontSize: 11
+                    }}
+                  >
+                    {formatFileSize(video.fileSize)}
+                  </div>
+                </div>
+
+                <div style={{ padding: 12, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <Text strong ellipsis style={{ fontSize: 14, marginBottom: 4 }}>
+                    {video.title || video.originalName}
+                  </Text>
+                  <Paragraph
+                    type="secondary"
+                    ellipsis={{ rows: 2 }}
+                    style={{ fontSize: 12, marginBottom: 12, minHeight: 32 }}
+                  >
+                    {video.description || '暂无描述'}
+                  </Paragraph>
+
+                  {video.stats ? (
+                    <div style={{ marginTop: 'auto' }}>
+                      <div style={{ marginBottom: 12 }}>
+                        <StatsTags
+                          viewCount={video.stats.totalView}
+                          likeCount={video.stats.totalLike}
+                          commentCount={video.stats.totalComment}
+                          shareCount={video.stats.totalShare}
+                        />
+                      </div>
+                      <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
+                        <PlatformStatsBar platforms={video.stats.platforms} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        marginTop: 'auto',
+                        color: '#bfbfbf',
+                        fontSize: 12,
+                        textAlign: 'center',
+                        padding: '12px 0'
+                      }}
+                    >
+                      暂无分发数据
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    borderTop: '1px solid #f0f0f0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: 12,
+                    color: '#8c8c8c'
+                  }}
+                >
+                  <span>ID: {video.id}</span>
+                  <span>{dayjs(video.createTime).format('MM-DD HH:mm')}</span>
+                </div>
+              </Card>
+            </Col>
+          ))}
+        </Row>
       )}
 
       <Modal

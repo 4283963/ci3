@@ -52,6 +52,9 @@ redisson:
 task:
   timeout-minutes: 30
 
+stats:
+  recover-interval-seconds: 60
+
 logging:
   level:
     com.media.matrix.dist: debug

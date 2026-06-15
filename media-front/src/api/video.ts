@@ -1,9 +1,13 @@
 import { get, post, put, del, upload, request } from './request'
-import type { Video, PageParams, PageResult } from '@/types'
+import type { Video, VideoWithStats, PageParams, PageResult } from '@/types'
 import type { AxiosProgressEvent } from 'axios'
 
 export const getVideoList = (params: PageParams): Promise<PageResult<Video>> => {
   return get<PageResult<Video>>('/video/list', params)
+}
+
+export const getVideoListWithStats = (): Promise<VideoWithStats[]> => {
+  return get<VideoWithStats[]>('/video/list-with-stats')
 }
 
 export const getVideoById = (id: number): Promise<Video> => {
