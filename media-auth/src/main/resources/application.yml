@@ -1,0 +1,55 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: media-auth
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/media_matrix?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1ms
+          max-idle: 8
+          min-idle: 0
+
+jwt:
+  secret: media-matrix-secret-key-1234567890
+  expire: 86400
+
+oauth2:
+  douyin:
+    client-id: your-douyin-client-id
+    client-secret: your-douyin-client-secret
+    redirect-uri: http://localhost:8081/account/callback/douyin
+  kuaishou:
+    client-id: your-kuaishou-client-id
+    client-secret: your-kuaishou-client-secret
+    redirect-uri: http://localhost:8081/account/callback/kuaishou
+  xiaohongshu:
+    client-id: your-xiaohongshu-client-id
+    client-secret: your-xiaohongshu-client-secret
+    redirect-uri: http://localhost:8081/account/callback/xiaohongshu
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
