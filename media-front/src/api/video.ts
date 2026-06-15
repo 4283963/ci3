@@ -1,5 +1,6 @@
-import { get, post, put, del, upload } from './request'
+import { get, post, put, del, upload, request } from './request'
 import type { Video, PageParams, PageResult } from '@/types'
+import type { AxiosProgressEvent } from 'axios'
 
 export const getVideoList = (params: PageParams): Promise<PageResult<Video>> => {
   return get<PageResult<Video>>('/video/list', params)
@@ -13,7 +14,21 @@ export const uploadVideo = (file: File, onProgress?: (progress: number) => void)
   const formData = new FormData()
   formData.append('file', file)
 
-  return upload<Video>('/video/upload', formData)
+  return request<Video>({
+    url: '/video/upload',
+    method: 'POST',
+    data: formData,
+    service: 'dist',
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+      if (progressEvent.total && onProgress) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+        onProgress(percent)
+      }
+    }
+  })
 }
 
 export const updateVideo = (id: number, data: Partial<Video>): Promise<Video> => {

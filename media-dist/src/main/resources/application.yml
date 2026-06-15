@@ -49,6 +49,9 @@ redisson:
     name: distribute:task:delay:queue
     poll-interval: 1000
 
+task:
+  timeout-minutes: 30
+
 logging:
   level:
     com.media.matrix.dist: debug

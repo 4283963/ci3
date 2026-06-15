@@ -1,5 +1,5 @@
 import { get, post, put, del } from './request'
-import type { DistributeTask, DistributeTaskRequest, PageParams, PageResult, DashboardStats } from '@/types'
+import type { DistributeTask, DistributeTaskRequest, PageParams, PageResult, DashboardStats, TaskProgress } from '@/types'
 
 export const getTaskList = (params: PageParams): Promise<PageResult<DistributeTask>> => {
   return get<PageResult<DistributeTask>>('/task/list', params)
@@ -27,4 +27,12 @@ export const deleteTask = (id: number): Promise<void> => {
 
 export const getDashboardStats = (): Promise<DashboardStats> => {
   return get<DashboardStats>('/task/stats/dashboard')
+}
+
+export const getTaskProgress = (taskId: number): Promise<TaskProgress> => {
+  return get<TaskProgress>(`/task/progress/${taskId}`)
+}
+
+export const getTaskProgressBatch = (taskIds: number[]): Promise<TaskProgress[]> => {
+  return post<TaskProgress[]>('/task/progress/batch', taskIds)
 }

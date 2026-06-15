@@ -9,9 +9,15 @@ interface VideoUploaderProps {
   onSuccess?: (video: Video) => void
   maxSize?: number
   accept?: string
+  buttonText?: string
 }
 
-const VideoUploader = ({ onSuccess, maxSize = 500, accept = 'video/*' }: VideoUploaderProps) => {
+const VideoUploader = ({
+  onSuccess,
+  maxSize = 500,
+  accept = 'video/*',
+  buttonText = '上传视频'
+}: VideoUploaderProps) => {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
 
@@ -31,19 +37,27 @@ const VideoUploader = ({ onSuccess, maxSize = 500, accept = 'video/*' }: VideoUp
     return false
   }
 
+  const handleUploadProgress = (percent: number) => {
+    setProgress(percent)
+  }
+
   const handleUpload = async (file: UploadFile) => {
     setUploading(true)
     setProgress(0)
 
     try {
-      const video = await uploadVideo(file as File)
-      message.success('上传成功')
+      const video = await uploadVideo(file as File, handleUploadProgress)
       setProgress(100)
+      message.success('上传成功')
       onSuccess?.(video)
-    } catch (error) {
-      message.error('上传失败')
+    } catch (error: any) {
+      const errMsg = error?.message || '上传失败'
+      message.error(`上传失败：${errMsg}`)
     } finally {
-      setUploading(false)
+      setTimeout(() => {
+        setUploading(false)
+        setProgress(0)
+      }, 500)
     }
   }
 
@@ -61,11 +75,20 @@ const VideoUploader = ({ onSuccess, maxSize = 500, accept = 'video/*' }: VideoUp
   return (
     <div>
       <Upload {...uploadProps}>
-        <Button icon={<UploadOutlined />} loading={uploading} disabled={uploading}>
-          {uploading ? '上传中...' : '上传视频'}
+        <Button icon={<UploadOutlined />} loading={uploading} disabled={uploading} type="primary">
+          {uploading ? `上传中 ${progress}%` : buttonText}
         </Button>
       </Upload>
-      {uploading && <Progress percent={progress} style={{ marginTop: 8, width: 200 }} />}
+      {uploading && (
+        <Progress
+          percent={progress}
+          style={{ marginTop: 12, width: 320 }}
+          strokeColor={{
+            '0%': '#108ee9',
+            '100%': '#87d068'
+          }}
+        />
+      )}
     </div>
   )
 }

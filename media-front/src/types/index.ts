@@ -127,3 +127,24 @@ export interface DashboardStats {
   totalViews: number
   totalLikes: number
 }
+
+export interface TaskProgress {
+  taskId: number
+  status: number
+  platform: PlatformType
+  title: string
+  accountId: number
+  errorMsg?: string
+  platformVideoId?: string
+  platformVideoUrl?: string
+  createTime?: string
+  executeTime?: string
+  completeTime?: string
+  progress: number
+  stats?: {
+    viewCount: number
+    likeCount: number
+    commentCount: number
+    shareCount: number
+  }
+}

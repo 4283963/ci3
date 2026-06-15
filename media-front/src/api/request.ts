@@ -16,12 +16,13 @@ enum ResultCode {
 
 interface RequestConfig extends AxiosRequestConfig {
   service?: 'auth' | 'dist'
+  onUploadProgress?: (progressEvent: any) => void
 }
 
 const createInstance = (baseURL: string): AxiosInstance => {
   const instance = axios.create({
     baseURL,
-    timeout: 30000,
+    timeout: 30 * 60 * 1000,
     headers: {
       'Content-Type': 'application/json'
     }
